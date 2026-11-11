@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Love Heart</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #060208;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+// ---------- Constantes (las mismas del original) ----------
+const SC = 21, OY = 20, DURATION = 10, TICK = 16, ANIM = 42, LIFT = 34, GAP = 7;
+const SIZES = [9, 10, 11, 12];
+const FONT = "Arial";
+const BG = "#060208";
+const BGC = [6 / 255, 2 / 255, 8 / 255];
+const FLASH = [1.0, 0.78, 0.78];
+const WINE = [0.58, 0.0, 0.09];
+const CRIMSON = [0.90, 0.05, 0.14];
+const BLOOD = [0.98, 0.10, 0.16];
+const LOGICAL = 800;
+
+const PHRASES = [
+  "I love you", "Seni seviyorum", "Te amo", "Je t'aime",
+  "Ich liebe dich", "Ti amo", "Eu te amo", "Я тебя люблю",
+  "사랑해", "愛してる", "我爱你", "मैं तुमसे प्यार करता हूँ",
+  "Σ' αγαπώ", "Ik hou van jou", "Jag älskar dig", "Kocham cię",
+  "ฉันรักเธอ", "Anh yêu em", "Aku cinta kamu", "Я тебе кохаю",
+];
+
+// ---------- Generador idéntico a random.Random(11) de Python ----------
+class PyRandom {
+  constructor(seed) {
+    this.mt = new Uint32Array(624);
+    this.mti = 625;
+    this.initByArray([seed >>> 0]);
+  }
+  initGenrand(s) {
+    const mt = this.mt;
+    mt[0] = s >>> 0;
+    for (let i = 1; i < 624; i++) {
+      const prev = mt[i - 1] ^ (mt[i - 1] >>> 30);
+      mt[i] = (Math.imul(1812433253, prev) + i) >>> 0;
+    }
+    this.mti = 624;
+  }
+  initByArray(key) {
+    const mt = this.mt, N = 624;
+    this.initGenrand(19650218);
+    let i = 1, j = 0;
+    for (let k = Math.max(N, key.length); k; k--) {
+      const prev = mt[i - 1] ^ (mt[i - 1] >>> 30);
+      mt[i] = ((mt[i] ^ Math.imul(prev, 1664525)) + key[j] + j) >>> 0;
+      i++; j++;
+      if (i >= N) { mt[0] = mt[N - 1]; i = 1; }
+      if (j >= key.length) j = 0;
+    }
+    for (let k = N - 1; k; k--) {
+      const prev = mt[i - 1] ^ (mt[i - 1] >>> 30);
+      mt[i] = ((mt[i] ^ Math.imul(prev, 1566083941)) - i) >>> 0;
+      i++;
+      if (i >= N) { mt[0] = mt[N - 1]; i = 1; }
+    }
+    mt[0] = 0x80000000;
+  }
+  nextUint32() {
+    const mt = this.mt;
+    if (this.mti >= 624) {
+      let kk;
+      for (kk = 0; kk < 624 - 397; kk++) {
+        const y = (mt[kk] & 0x80000000) | (mt[kk + 1] & 0x7fffffff);
+        mt[kk] = mt[kk + 397] ^ (y >>> 1) ^ ((y & 1) ? 0x9908b0df : 0);
+      }
+      for (; kk < 623; kk++) {
+        const y = (mt[kk] & 0x80000000) | (mt[kk + 1] & 0x7fffffff);
+        mt[kk] = mt[kk + (397 - 624)] ^ (y >>> 1) ^ ((y & 1) ? 0x9908b0df : 0);
+      }
+      const y = (mt[623] & 0x80000000) | (mt[0] & 0x7fffffff);
+      mt[623] = mt[396] ^ (y >>> 1) ^ ((y & 1) ? 0x9908b0df : 0);
+      this.mti = 0;
+    }
+    let y = mt[this.mti++];
+    y ^= y >>> 11;
+    y ^= (y << 7) & 0x9d2c5680;
+    y ^= (y << 15) & 0xefc60000;
+    y ^= y >>> 18;
+    return y >>> 0;
+  }
+  random() {
+    const a = this.nextUint32() >>> 5, b = this.nextUint32() >>> 6;
+    return (a * 67108864 + b) / 9007199254740992;
+  }
+  getrandbits(k) { return this.nextUint32() >>> (32 - k); }
+  randbelow(n) {
+    const k = n.toString(2).length;
+    let r = this.getrandbits(k);
+    while (r >= n) r = this.getrandbits(k);
+    return r;
+  }
+  uniform(a, b) { return a + (b - a) * this.random(); }
+  choice(arr) { return arr[this.randbelow(arr.length)]; }
+  shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = this.randbelow(i + 1);
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+}
+const rng = new PyRandom(11);
+
+// ---------- Lienzo ----------
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let W = 0, H = 0, dpr = 1, scale = 1;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  scale = Math.min(W, H) / LOGICAL;
+}
+window.addEventListener("resize", resize);
+resize();
+
+function setView() {
+  // Origen en el centro, eje Y hacia abajo (como el canvas de turtle)
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * W / 2, dpr * H / 2);
+}
+
+// ---------- Fuentes ----------
+// Tk usa puntos: 96 ppp, así que tamaño en px = size * 96 / 72
+const px = size => Math.round(size * 96 / 72);
+const fontOf = size => `bold ${px(size)}px ${FONT}`;
+
+function measure(text, size) {
+  ctx.font = fontOf(size);
+  return Math.round(ctx.measureText(text).width);
+}
+function lineSpace(size) {
+  ctx.font = fontOf(size);
+  const m = ctx.measureText("Ag");
+  return Math.round(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent);
+}
+
+// ---------- Geometría del corazón ----------
+function heart(a) {
+  const x = 16 * Math.pow(Math.sin(a), 3);
+  const y = 13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a);
+  return [x * SC, y * SC + OY];
+}
+const POLY = [];
+for (let i = 0; i < 720; i++) POLY.push(heart((2 * Math.PI * i) / 720));
+const EDGES = POLY.map((p, i) => [p, POLY[(i + 1) % POLY.length]]);
+const YMAX = Math.max(...POLY.map(p => p[1]));
+const YMIN = Math.min(...POLY.map(p => p[1]));
+const CY = (YMAX + YMIN) / 2;
+
+function spans(y) {
+  const xs = [];
+  for (const [[x1, y1], [x2, y2]] of EDGES) {
+    if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) {
+      xs.push(x1 + ((y - y1) * (x2 - x1)) / (y2 - y1));
+    }
+  }
+  xs.sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+  return out;
+}
+function intersect(A, B) {
+  const out = [];
+  for (const a of A) for (const b of B) {
+    const lo = Math.max(a[0], b[0]), hi = Math.min(a[1], b[1]);
+    if (hi - lo > 14) out.push([lo, hi]);
+  }
+  return out;
+}
+function mathDist(x, y) {
+  return Math.hypot(x / (16 * SC), (y - CY) / (14.5 * SC));
+}
+
+// ---------- Utilidades de color ----------
+function clamp(v, lo = 0, hi = 1) { return Math.max(lo, Math.min(hi, v)); }
+function mix(a, b, k) { return a.map((p, i) => p + (b[i] - p) * k); }
+function dim(c, k) { return c.map(v => v * k); }
+function rgb(c) { return `rgb(${c.map(v => Math.trunc(clamp(v) * 255)).join(",")})`; }
+function mod2pi(a) { return ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI); }
+
+// ---------- Construcción de la disposición (equivalente a build()) ----------
+function* phraseCycle() {
+  while (true) yield* rng.shuffle(PHRASES.slice());
+}
+
+function build() {
+  const cycle = phraseCycle();
+  const rowH = Math.max(...SIZES.map(lineSpace)) + 4;
+  const half = rowH / 2;
+  const placed = [];
+
+  let y = YMAX - half;
+  while (y > YMIN + half) {
+    const row = intersect(spans(y + half), spans(y - half));
+    for (const seg of row) {
+      const lo = seg[0] + 4, hi = seg[1] - 4;
+      const cur0 = lo + rng.uniform(0, 8);
+      let cur = cur0;
+      const line = [];
+
+      while (true) {
+        let fit = null;
+        for (let k = 0; k < 10; k++) {
+          const text = cycle.next().value;
+          const size = rng.choice(SIZES);
+          const w = measure(text, size);
+          if (cur + w <= hi) { fit = { text, size, w }; break; }
+        }
+        if (!fit) break;
+        line.push({ x: cur + fit.w / 2, text: fit.text, size: fit.size, w: fit.w });
+        cur += fit.w + GAP;
+      }
+
+      if (!line.length) continue;
+
+      if (line.length > 1) {
+        const last = line[line.length - 1];
+        const left = hi - (last.x + last.w / 2);
+        line.forEach((it, i) => { it.x += (left * i) / (line.length - 1); });
+      } else {
+        line[0].x = (lo + hi) / 2;
+      }
+
+      line.forEach((it, i) => {
+        const edge = i === 0 || i === line.length - 1;
+        placed.push({ x: it.x, y, text: it.text, size: it.size, edge });
+      });
+    }
+    y -= rowH;
+  }
+
+  // Colores
+  for (const p of placed) {
+    const rad = Math.min(1, mathDist(p.x, p.y));
+    let base = mix(WINE, CRIMSON, 0.25 + 0.75 * rad);
+    base = mix(base, BLOOD, rng.uniform(0, 0.35) + (p.edge ? 0.3 : 0));
+    p.color = base.map(v => Math.min(1, v));
+    p.rad = rad;
+  }
+
+  const edges = placed.filter(p => p.edge);
+  const inner = placed.filter(p => !p.edge);
+
+  // Orden de aparición (las claves se calculan en el mismo orden que en Python)
+  const edgeKeyed = edges.map(p => [mod2pi(Math.atan2(p.x, p.y - CY)), p]);
+  edgeKeyed.sort((a, b) => a[0] - b[0]);
+
+  const innerKeyed = inner.map(p => [-p.rad + rng.uniform(0, 0.08), p]);
+  innerKeyed.sort((a, b) => a[0] - b[0]);
+
+  return edgeKeyed.map(k => k[1]).concat(innerKeyed.map(k => k[1]));
+}
+
+// ---------- Animación ----------
+const ORDER = build();
+const RATE = ORDER.length / ((DURATION * 1000) / TICK);
+let idx = 0;
+let acc = 0;
+let spawning = true;
+let active = [];
+const spawned = [];
+
+function spawn(p) {
+  const it = {
+    p,
+    x: p.x,
+    y: -p.y,
+    f: 0,
+    dx: rng.uniform(-10, 10),
+    px: p.x,
+    py: -p.y - LIFT,
+    shadowCol: BGC,
+    haloCol: BGC,
+    mainCol: BGC,
+  };
+  spawned.push(it);
+  active.push(it);
+}
+
+function animate(it) {
+  it.f += 1;
+  const u = clamp(it.f / ANIM);
+  const e = 1 - Math.pow(1 - u, 3);
+  const c = it.p.color;
+  const hover = (1 - e) * LIFT;
+  it.px = it.x + it.dx * (1 - e);
+  it.py = it.y - hover;
+  it.shadowCol = mix(BGC, dim(c, 0.30), e);
+  it.haloCol = mix(BGC, dim(c, 0.20), e * e);
+  const flash = 0.75 * Math.sin(Math.PI * clamp((u - 0.55) / 0.45));
+  it.mainCol = mix(mix(BGC, c, Math.pow(e, 1.5)), FLASH, flash);
+  if (u >= 1) {
+    it.px = it.x;
+    it.py = it.y;
+    it.mainCol = c;
+    return false;
+  }
+  return true;
+}
+
+function draw(it) {
+  const { p } = it;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  ctx.font = fontOf(p.size);
+  ctx.fillStyle = rgb(it.shadowCol);
+  ctx.fillText(p.text, it.x + 2, it.y + 3);
+
+  ctx.font = fontOf(p.size + 1);
+  ctx.fillStyle = rgb(it.haloCol);
+  ctx.fillText(p.text, it.px, it.py);
+
+  ctx.font = fontOf(p.size);
+  ctx.fillStyle = rgb(it.mainCol);
+  ctx.fillText(p.text, it.px, it.py);
+}
+
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  setView();
+  for (const it of spawned) draw(it);
+  requestAnimationFrame(render);
+}
+
+function step() {
+  if (spawning) {
+    acc += RATE;
+    while (acc >= 1) {
+      acc -= 1;
+      if (idx >= ORDER.length) { spawning = false; break; }
+      spawn(ORDER[idx++]);
+    }
+  }
+
+  active = active.filter(it => animate(it));
+
+  if (!spawning && active.length === 0) {
+    shimmer();
+    return;
+  }
+  setTimeout(step, TICK);
+}
+
+function shimmer() {
+  const it = rng.choice(spawned);
+  it.mainCol = mix(it.p.color, FLASH, 0.6);
+  setTimeout(() => { it.mainCol = it.p.color; }, 260);
+  setTimeout(shimmer, 140);
+}
+
+setTimeout(step, 200);
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
